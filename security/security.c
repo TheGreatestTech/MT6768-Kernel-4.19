@@ -794,11 +794,11 @@ void security_sb_free(struct super_block *sb)
 	call_void_hook(sb_free_security, sb);
 }
 
-int security_sb_copy_data(char *orig, char *copy)
+int security_sb_eat_lsm_opts(char *options, struct security_mnt_opts *opts)
 {
 	return call_int_hook(sb_eat_lsm_opts, 0, options, opts);
 }
-EXPORT_SYMBOL(security_sb_copy_data);
+EXPORT_SYMBOL(security_sb_eat_lsm_opts);
 
 int security_sb_remount(struct super_block *sb,
 			struct security_mnt_opts *opts)
