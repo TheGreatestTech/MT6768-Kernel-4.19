@@ -796,7 +796,7 @@ void security_sb_free(struct super_block *sb)
 
 int security_sb_copy_data(char *orig, char *copy)
 {
-	return call_int_hook(sb_copy_data, 0, orig, copy);
+	return call_int_hook(sb_eat_lsm_opts, 0, options, opts);
 }
 EXPORT_SYMBOL(security_sb_copy_data);
 
