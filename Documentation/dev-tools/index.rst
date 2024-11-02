@@ -25,6 +25,7 @@ whole; patches welcome!
    gdb-kernel-debugging
    kgdb
    kselftest
+   autofdo
 
 
 .. only::  subproject and html
