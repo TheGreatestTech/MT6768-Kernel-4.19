@@ -95,7 +95,7 @@ jobs:
           make ARCH=arm64 O=out olddefconfig
           
           # Construct the localversion string
-          export LOCALVERSION="-zyte-base-${BUILD_DATE}"
+          export LOCALVERSION="-Zyte-kernel-base-${BUILD_DATE}"
           echo "Compiling Base Kernel with version: $LOCALVERSION"
           
           make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
@@ -129,7 +129,7 @@ jobs:
           make ARCH=arm64 O=out olddefconfig
           
           # Construct the localversion string
-          export LOCALVERSION="-zyte-ksu-${KSU_VER}-${BUILD_DATE}"
+          export LOCALVERSION="-Zyte-Kernel-KernelSU-${KSU_VER}-${BUILD_DATE}"
           echo "Compiling KSU Kernel with version: $LOCALVERSION"
           
           make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
@@ -165,7 +165,7 @@ jobs:
           make ARCH=arm64 O=out olddefconfig
           
           # Construct the localversion string
-          export LOCALVERSION="-zyte-ksu-${KSU_VER}-nomount-${BUILD_DATE}"
+          export LOCALVERSION="-Zyte-Kernel-KernelSU-${KSU_VER}-NoMount-${BUILD_DATE}"
           echo "Compiling KSU + NoMount Kernel with version: $LOCALVERSION"
           
           make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
