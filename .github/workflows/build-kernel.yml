@@ -194,7 +194,7 @@ jobs:
           tag_name: zyte-kernel-build-${{ env.BUILD_DATE }}
           name: Zyte Kernel Build - ${{ env.BUILD_DATE }}
           body: |
-            Automated weekly build for **Zyte Kernel (Redmi 10 / selene)**.
+            Automated build for **Zyte Kernel (Redmi 10 / selene)**.
             
             **Date**: `${{ env.BUILD_DATE }}`
             **Source Commit**: `${{ github.sha }}`
