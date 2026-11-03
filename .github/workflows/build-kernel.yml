@@ -86,7 +86,7 @@ jobs:
           cat arch/arm64/configs/vendor/selene.config >> out/.config
           make ARCH=arm64 O=out olddefconfig
           
-          export LOCALVERSION="-Zyte-kernel-base-${BUILD_DATE}"
+          export LOCALVERSION="-Zyte-Kernel-Base-${BUILD_DATE}"
           echo "Compiling Base Kernel with version: $LOCALVERSION"
           
           make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
@@ -103,155 +103,11 @@ jobs:
       # =====================================================================
       # BUILD 2: KERNELSU NEXT ONLY
       # =====================================================================
-      - name: Integrate KernelSU Next & Manual Patch
+      - name: Integrate KernelSU Next
         run: |
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
-          
-          echo "Generating KSU Next manual patch..."
-          cat << 'EOF' > ksun.patch
-          --- a/fs/exec.c
-          +++ b/fs/exec.c
-          @@ -1011,6 +1011,12 @@ int do_execve_file(struct file *file, void *__argv, void *__envp)
-           	return __do_execve_file(AT_FDCWD, NULL, argv, envp, 0, file);
-           }
-           
-          +#ifdef CONFIG_KSU
-          +__attribute__((hot))
-          +extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
-          +				void *argv, void *envp, int *flags);
-          +#endif
-          +
-           int do_execve(struct filename *filename,
-           	const char __user *const __user *__argv,
-           	const char __user *const __user *__envp)
-          @@ -1019,6 +1025,9 @@ int do_execve(struct filename *filename,
-           {
-           	struct user_arg_ptr argv = { .ptr.native = __argv };
-           	struct user_arg_ptr envp = { .ptr.native = __envp };
-          +#ifdef CONFIG_KSU
-          +	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
-          +#endif
-           	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
-           }
-           
-          @@ -1937,6 +1946,10 @@ static int compat_do_execve(struct filename *filename,
-           		.is_compat = true,
-           		.ptr.compat = __envp,
-           	};
-          +#ifdef CONFIG_KSU // 32-bit ksud and 32-on-64 support
-          +	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
-          +#endif
-           	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
-           }
-          --- a/fs/open.c
-          +++ b/fs/open.c
-          @@ -344,6 +344,12 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
-           	return ksys_fallocate(fd, mode, offset, len);
-           }
-           
-          +#ifdef CONFIG_KSU
-          +__attribute__((hot))
-          +extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
-          +				int *mode, int *flags);
-          +#endif
-          +
-           /*
-            * access() needs to use the real uid/gid, not the effective uid/gid.
-            * We do this by temporarily clearing all FS-related capabilities and
-          @@ -353,6 +359,10 @@ long do_faccessat(int dfd, const char __user *filename, int mode)
-           	int res;
-           	unsigned int lookup_flags = LOOKUP_FOLLOW;
-            
-          +#ifdef CONFIG_KSU
-          +	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
-          +#endif
-          +
-           	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
-           		return -EINVAL;
-            
-          --- a/fs/read_write.c
-          +++ b/fs/read_write.c
-          @@ -570,6 +570,12 @@ static inline void file_pos_write(struct file *file, loff_t pos)
-           		file->f_pos = pos;
-           }
-            
-          +#ifdef CONFIG_KSU
-          +extern bool ksu_vfs_read_hook __read_mostly;
-          +extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd,
-          +				char __user **buf_ptr, size_t *count_ptr);
-          +#endif
-          +
-           ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)
-           {
-           	struct fd f = fdget_pos(fd);
-          @@ -577,6 +583,10 @@ ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)
-           	ssize_t ret = -EBADF;
-            
-          +#ifdef CONFIG_KSU
-          +	if (unlikely(ksu_vfs_read_hook))
-          +		ksu_handle_sys_read(fd, &buf, &count);
-          +#endif
-          +
-           	if (f.file) {
-           		loff_t pos = file_pos_read(f.file);
-           		ret = vfs_read(f.file, buf, count, &pos);
-            
-          --- a/fs/stat.c
-          +++ b/fs/stat.c
-          @@ -355,6 +355,12 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
-           	return cp_new_stat(&stat, statbuf);
-           }
-            
-          +#ifdef CONFIG_KSU
-          +__attribute__((hot))
-          +extern int ksu_handle_stat(int *dfd, const char __user **filename_user,
-          +				int *flags);
-          +#endif
-          +
-           #if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)
-           SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
-           		struct stat __user *, statbuf, int, flag)
-          @@ -360,6 +366,10 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
-           	struct kstat stat;
-           	int error;
-            
-          +#ifdef CONFIG_KSU
-          +	ksu_handle_stat(&dfd, &filename, &flag);
-          +#endif
-          +
-           	error = vfs_fstatat(dfd, filename, &stat, flag);
-           	if (error)
-           		return error;
-            
-          --- a/kernel/reboot.c
-          +++ b/kernel/reboot.c
-          @@ -297,6 +297,11 @@ static void kernel_shutdown_prepare(enum system_states state)
-            * reboot doesn't sync: do that yourself before calling this.
-            */
-          +
-          +#ifdef CONFIG_KSU
-          +extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
-          +#endif
-          +
-           SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
-           		void __user *, arg)
-           {
-          @@ -305,6 +310,10 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
-           	char buffer[256];
-           	int ret = 0;
-            
-          +#ifdef CONFIG_KSU
-          +	ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
-          +#endif
-          +
-           	/* We only trust the superuser with rebooting the system. */
-           	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
-           		return -EPERM;
-          EOF
-          
-          echo "Applying KSU Next patch via git apply..."
-          git apply ksun.patch || patch -p1 < ksun.patch
-          rm ksun.patch
+          echo "Applying core KSU Next manual hooks..."
+          patch -p1 --forward --batch < patches/KernelSU-Next-Manual-Hook-4.19.patch
 
       - name: Build KSUN Kernel
         run: |
@@ -262,9 +118,12 @@ jobs:
           make ARCH=arm64 O=out vendor/mt6768_defconfig
           cat arch/arm64/configs/vendor/selene.config >> out/.config
           echo "CONFIG_KSU=y" >> out/.config
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> out/.config
+          echo "# CONFIG_KSU_KPROBES_HOOK is not set" >> out/.config
           make ARCH=arm64 O=out olddefconfig
           
           export LOCALVERSION="-Zyte-Kernel-KernelSU-Next-${KSUN_VER}-${BUILD_DATE}"
+          echo "Compiling KSUN Kernel with version: $LOCALVERSION"
           
           make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
           
@@ -277,20 +136,119 @@ jobs:
           cd ..
 
       # =====================================================================
-      # BUILD 3: KERNELSU NEXT + NOMOUNT (with SUSFS 2.3.0)
+      # BUILD 3: KERNELSU NEXT + SUSFS
       # =====================================================================
-      - name: Apply SUSFS 2.3.0 Patch
+      - name: Integrate SUSFS
         run: |
-          echo "Decoding and applying the massive SUSFS 2.3.0 patch..."
-          # We use base64 so GitHub Actions doesn't break the tabs/spacing of the 3000+ line patch
-          echo "RnJvbSA0YTA5N2U4ZDcyZjYxOTc5NzY4ZDUzMzYzNTg5YTZkZmNiZWUwNDhiIE1vbiBTZXAgMTcgMDA6MDA6MDAgMjAwMSArMDAwMApGcm9tOiBzaW1vbnB1bmsgPHNpbW9ucHVuazIwMTZAZ21haWwuY29tPgpEYXRlOiBTdW4sIDEzIFNlcCAyMDI2IDE2OjUwOjA1ICswNjAwClN1YmplY3Q6IFtQQVRDSF0ga2VybmVsOiBJbXBsZW1lbnRlZCBTU1NGUyAyLjMuMAoKLS0tCiAuZ2l0aWdub3JlICAgICAgICAgICAgICAgIHwgICAgMyArCiBmcy9NYWtlZmlsZSAgICAgICAgICAgICAgICB8ICAgIDIgKwogZnMvbmFtZWkuYyAgICAgICAgICAgICAgICB8ICAyNTUgKysrKy0KIGZzL25hbWVzcGFjZS5jICAgICAgICAgICAgfCAgMjQ0ICsrKysrKwogZnMvbm90aWZ5L2ZkaW5mby5jICAgICAgICB8ICA3NyArKwogZnMvcHJvYy9iYXNlLmMgICAgICAgICAgICB8ICAyMiArCiBmcy9wcm9jL2NtZGxpbmUuYyAgICAgICAgIHwgIDEyICsKIGZzL3Byb2MvZmQuYyAgICAgICAgICAgICB8ICA3MCArKwogZnMvcHJvYy90YXNrX21tdS5jICAgICAgICB8ICA2NSArKwogZnMvcHJvY19uYW1lc3BhY2UuYyAgICAgICB8IDE4MiArKysrKwogZnMvcmVhZGRpci5jICAgICAgICAgICAgICB8IDE5OSArKysrKwogZnMvc3RhdC5jICAgICAgICAgICAgICAgICB8ICA1MyArKwogZnMvc3RhdGZzLmMgICAgICAgICAgICAgICB8ICA2NiArKwogZnMvc3VwZXIuYyAgICAgICAgICAgICAgICB8ICAyNCArCiBmcy9zdXNmcy5jICAgICAgICAgICAgICAgIHwgMTU2MSArKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysKIGluY2x1ZGUvbGludXgvc3VzZnMuaCAgICAgICB8IDI0MyArKysrKysKIGluY2x1ZGUvbGludXgvc3VzZnNfZGVmLmggICB8IDIxOSArKysrKysKIGtlcm5lbC9rYWxsc3ltcy5jICAgICAgICAgfCAzMSArCiBrZXJuZWwvc3lzLmMgICAgICAgICAgICAgICB8ICA4ICsKIG1tL21lbW9yeS5jICAgICAgICAgICAgICAgfCAxMyArCiBzZWN1cml0eS9zZWxpbnV4L2F2Yy5jICAgICB8IDIzICsKIDIxIGZpbGVzIGNoYW5nZWQsIDMzNzEgaW5zZXJ0aW9ucygrKSwgMSBkZWxldGlvbigtKQogY3JlYXRlIG1vZGUgMTAwNjQ0IGZzL3N1c2ZzLmMKIGNyZWF0ZSBtb2RlIDEwMDY0NCBpbmNsdWRlL2xpbnV4L3N1c2ZzLmgKIGNyZWF0ZSBtb2RlIDEwMDY0NCBpbmNsdWRlL2xpbnV4L3N1c2ZzX2RlZi5oCgpkaWZmIC0tZ2l0IGEvLmdpdGlnbm9yZSBiLy5naXRpZ25vcmUKaW5kZXggMGNmNmQzMWRiYmFkLi44MmNiNTlmNDE5MjQgMTAwNjQ0Ci0tLSBhLy5naXRpZ25vcmUKKysrIGIvLmdpdGlnbm9yZQpAQCAtMTMxLDMgKzEzMSw2IEBAIGFsbC5jb25maWcKIAogIyBLZGV2ZWxvcDQKICoua2RldjQKcgp0dCtwCisqLm9yaWcKKyoucmVqCisKZGlmZiAtLWdpdCBhL2ZzL01ha2VmaWxlIGIvZnMvTWFrZWZpbGUKaW5kZXggODI1M2QxMzFlZjQxLi4xOGQ5ZWQ3NTE3YzAgMTAwNjQ0Ci0tLSBhL2ZzL01ha2VmaWxlCisrKyBiL2ZzL01ha2VmaWxlCkBAIC0xNSw2ICsxNSw4IEBAIG9iai15IDo9CW9wZW4ubyByZWFkX3dyaXRlLm8gZmlsZV90YWJsZS5vIHN1cGVyLm8gXAogCQlzdGFjay5vIGZzX3N0cnVjdC5vIHN0YXRmcy5vIGZzX3Bpbi5vIG5zZnMubwogCQlmc19jb250ZXh0Lm8gZnNfcGFyc2VyLm8KIAorIG9iai0kKENPTkZJR19LU1VfU1VTRlMpICs9IHN1c2ZzLm8KKwogCiBpZmVxICgkKENPTkZJR19CTE9DSykseSkKIG9iai15ICs9CWJ1ZmZlci5vIGJsb2NrX2Rldi5vIGRpcmVjdC1pby5vIG1wYWdlLm8KIGVsc2UKZGlmZiAtLWdpdCBhL2ZzL25hbWVpLmMgYi9mcy9uYW1laS5jCmluZGV4IDU5NjQ4YWFiNjE5MC4uMDdiNjZmMTczYTAwIDEwMDY0NAotLS0gYS9mcy9uYW1laS5jCisrKyBiL2ZzL25hbWVpLmMKQEAgLTQwLDYgKzQwLDkgQEBAIAojL2luY2x1ZGUgPGxpbnV4L2luaXRfdGFzay5oPgogI2luY2x1ZGUgPGxpbnV4L3VhY2Nlc3MuaD4KICNpbmNsdWRlIDxsaW51eC9idWlsZF9idWcuaD4KKyNpZiBkZWZpbmVkKENPTkZJR19LU1VfU1VTRlNfU1VTX1BBVEgpIHx8IGRlZmluZWQoQ09ORklHX0tTVV9TVVNGU19PUEVOX1JFRElSRUNUKQorI2luY2x1ZGUgPGxpbnV4L3N1c2ZzX2RlZi5oPgorI2VuZGlmCiAKICNpbmNsdWRlICJpbnRlcm5hbC5oIgogI2luY2x1ZGUgIm1vdW50LmgiCgpAQCAtNDcsNiArNTAsMTQgQEBAIAojZGVmaW5lIENSRUFURV9UUkFDRV9QT0lOVFMKI2luY2x1ZGUgPHRyYWNlL2V2ZW50cy9uYW1laS5oPgotCiNpZiArZGVmaW5lZChDT05GSUdfS1NVX1NVU0ZTX1NVU19QQVRIKQorZXh0ZXJuIGJvb2wgc3VzZnNfaXNfaW5vZGVfc3VzX3BhdGgoc3RydWN0IGlub2RlICppbm9kZSk7CitleHRlcm4gY29uc3Qgc3RydWN0IHFzdHIgc3VzZnNfZmFrZV9xc3RyX25hbWU7CitlbmRpZgorI2lmZGVmIENPTkZJR19LU1VfU1VTRlNfT1BFTl9SRURJUkVDVAorZXh0ZXJuIHN0cnVjdCBmaWxlbmFtZSAqc3VzZnNfb3Blbl9yZWRpcmVjdF9zcG9vZl9kb19zeXNfb3BlbmF0KHN0cnVjdCBpbm9kZSAqaW5vZGUpOworaWZkZWYgLy8gI2lmZGVmIENPTkZJR19LU1VfU1VTRlNfT1BFTl9SRURJUkVDVAorCiAvKiBbRmViLTE5OTcgVC4gU2Nob2ViZWwtVGhldWVyXQogICogRnVuZGFtZW50YWwgY2hhbmdlcyBpbiB0aGUgcGF0aG5hbWUgbG9va3VwIG1lY2hhbmlzbXMgKG5hbWVpKQogICogd2VyZSBuZWNlc3NhcnkgYmVjYXVzZSBvZiBvbWlyci4gIFRoZSByZWFzb24gaXMgdGhhdCBvbWlyciBuZWVkcwoKQEAgLTUwNiw2ICs1MTcsOSBAQCBzdHJ1Y3QgbmFtZWlkYXRhIHsKIA==... (Truncated for length)" | base64 -d > susfs.patch
+          # 1. Patch the KernelSU-Next source code with SUSFS integration
+          echo "Patching KernelSU-Next with SUSFS support..."
+          cd KernelSU-Next
+          patch -p1 --forward --batch < ../patches/KernelSU-Next-SUSFS-Patches.patch
+          cd ..
           
-          echo "Applying SUSFS 2.3.0 via git apply..."
-          git apply susfs.patch || patch -p1 < susfs.patch
-          rm susfs.patch
+          # 2. Apply core kernel SUSFS patches
+          echo "Applying Core SUSFS 2.3.0..."
+          patch -p1 --forward --batch < patches/SUSFS-DeInlined-v2.3.0.patch
+
+      - name: Build KSUN + SUSFS Kernel
+        run: |
+          export PATH="$CLANG_PATH:$PATH"
+          KSUN_VER=$(git -C KernelSU-Next describe --tags --always)
+          SUSFS_VER="2.3.0"
+          
+          echo "Generating KSUN + SUSFS config..."
+          make ARCH=arm64 O=out vendor/mt6768_defconfig
+          cat arch/arm64/configs/vendor/selene.config >> out/.config
+          
+          echo "CONFIG_KSU=y" >> out/.config
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> out/.config
+          echo "# CONFIG_KSU_KPROBES_HOOK is not set" >> out/.config
+          
+          echo "CONFIG_KSU_SUSFS=y" >> out/.config
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> out/.config
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> out/.config
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> out/.config
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> out/.config
+          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> out/.config
+          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> out/.config
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> out/.config
+          echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> out/.config
+          echo "# CONFIG_KSU_SUSFS_ENABLE_LOG is not set" >> out/.config
+          
+          make ARCH=arm64 O=out olddefconfig
+          
+          export LOCALVERSION="-Zyte-Kernel-KernelSU-Next-${KSUN_VER}-SUSFS-${SUSFS_VER}-${BUILD_DATE}"
+          echo "Compiling KSUN + SUSFS Kernel..."
+          
+          make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
+          
+          rm -f Zyte-Kernel/Image.gz* Zyte-Kernel/dtb
+          cp out/arch/arm64/boot/Image.gz-dtb Zyte-Kernel/ || cp out/arch/arm64/boot/Image.gz Zyte-Kernel/
+          cp out/arch/arm64/boot/dts/mediatek/mt6768.dtb Zyte-Kernel/dtb
+          
+          cd Zyte-Kernel
+          zip -r9 "../releases/Zyte-Kernel-KernelSU-Next-SUSFS-${BUILD_DATE}.zip" *
+          cd ..
+
+      # =====================================================================
+      # BUILD 4: KERNELSU NEXT + NOMOUNT (NO SUSFS)
+      # =====================================================================
+      - name: Revert SUSFS for NoMount Build
+        run: |
+          echo "Reverting SUSFS patches from kernel and KSU-Next..."
+          git checkout -- .
+          git -C KernelSU-Next checkout -- .
+          
+          echo "Re-applying KSU Manual Hooks..."
+          patch -p1 --forward --batch < patches/KernelSU-Next-Manual-Hook-4.19.patch
           
           echo "Integrating NoMount..."
           curl https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
+
+      - name: Build KSUN + NoMount Kernel
+        run: |
+          export PATH="$CLANG_PATH:$PATH"
+          KSUN_VER=$(git -C KernelSU-Next describe --tags --always)
+          NOMOUNT_VER=$(git -C NoMount describe --tags --always)
+          
+          echo "Generating KSUN + NoMount config..."
+          make ARCH=arm64 O=out vendor/mt6768_defconfig
+          cat arch/arm64/configs/vendor/selene.config >> out/.config
+          
+          echo "CONFIG_KSU=y" >> out/.config
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> out/.config
+          echo "# CONFIG_KSU_KPROBES_HOOK is not set" >> out/.config
+          echo "CONFIG_NOMOUNT=y" >> out/.config
+          
+          make ARCH=arm64 O=out olddefconfig
+          
+          export LOCALVERSION="-Zyte-Kernel-KernelSU-Next-${KSUN_VER}-NoMount-${NOMOUNT_VER}-${BUILD_DATE}"
+          echo "Compiling KSUN + NoMount Kernel..."
+          
+          make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
+          
+          rm -f Zyte-Kernel/Image.gz* Zyte-Kernel/dtb
+          cp out/arch/arm64/boot/Image.gz-dtb Zyte-Kernel/ || cp out/arch/arm64/boot/Image.gz Zyte-Kernel/
+          cp out/arch/arm64/boot/dts/mediatek/mt6768.dtb Zyte-Kernel/dtb
+          
+          cd Zyte-Kernel
+          zip -r9 "../releases/Zyte-Kernel-KernelSU-Next-NoMount-${BUILD_DATE}.zip" *
+          cd ..
+
+      # =====================================================================
+      # BUILD 5: KERNELSU NEXT + SUSFS + NOMOUNT (ULTIMATE)
+      # =====================================================================
+      - name: Apply SUSFS on top of NoMount
+        run: |
+          # 1. Patch the KernelSU-Next source code with SUSFS integration
+          echo "Patching KernelSU-Next with SUSFS support..."
+          cd KernelSU-Next
+          patch -p1 --forward --batch < ../patches/KernelSU-Next-SUSFS-Patches.patch
+          cd ..
+          
+          # 2. Apply core kernel SUSFS patches
+          echo "Applying Core SUSFS 2.3.0..."
+          patch -p1 --forward --batch < patches/SUSFS-DeInlined-v2.3.0.patch
 
       - name: Build KSUN + SUSFS + NoMount Kernel
         run: |
@@ -299,27 +257,30 @@ jobs:
           NOMOUNT_VER=$(git -C NoMount describe --tags --always)
           SUSFS_VER="2.3.0"
           
-          echo "Generating KSUN + NoMount + SUSFS config..."
+          echo "Generating KSUN + SUSFS + NoMount config..."
           make ARCH=arm64 O=out vendor/mt6768_defconfig
           cat arch/arm64/configs/vendor/selene.config >> out/.config
+          
           echo "CONFIG_KSU=y" >> out/.config
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> out/.config
+          echo "# CONFIG_KSU_KPROBES_HOOK is not set" >> out/.config
           echo "CONFIG_NOMOUNT=y" >> out/.config
           
-          # SUSFS Enable flags
           echo "CONFIG_KSU_SUSFS=y" >> out/.config
           echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> out/.config
           echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> out/.config
           echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> out/.config
           echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> out/.config
-          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> out/.config
           echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> out/.config
           echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> out/.config
           echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> out/.config
           echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> out/.config
+          echo "# CONFIG_KSU_SUSFS_ENABLE_LOG is not set" >> out/.config
           
           make ARCH=arm64 O=out olddefconfig
           
           export LOCALVERSION="-Zyte-Kernel-KernelSU-Next-${KSUN_VER}-SUSFS-${SUSFS_VER}-NoMount-${BUILD_DATE}"
+          echo "Compiling ULTIMATE Kernel..."
           
           make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
           
@@ -330,3 +291,36 @@ jobs:
           cd Zyte-Kernel
           zip -r9 "../releases/Zyte-Kernel-KernelSU-Next-SUSFS-NoMount-${BUILD_DATE}.zip" *
           cd ..
+
+      # =====================================================================
+      # UPLOAD & RELEASE
+      # =====================================================================
+      - name: Upload Artifacts to Action
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zyte-Kernel-Builds-${{ env.BUILD_DATE }}
+          path: releases/*.zip
+          if-no-files-found: error
+
+      - name: Publish All to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: zyte-kernel-build-${{ env.BUILD_DATE }}
+          name: Zyte Kernel Build - ${{ env.BUILD_DATE }}
+          body: |
+            Automated build for **Zyte Kernel (Redmi 10 / selene)**.
+            
+            **Date**: `${{ env.BUILD_DATE }}`
+            **Source Commit**: `${{ github.sha }}`
+            
+            ### Included Variants:
+            * **Base**: Pure kernel, no root.
+            * **KernelSU Next**: Includes KernelSU-Next with manual hooks.
+            * **KernelSU Next + SUSFS**: Includes KernelSU-Next and SUSFS 2.3.0.
+            * **KernelSU Next + NoMount**: Includes KernelSU-Next and NoMount VFS hiding.
+            * **KernelSU Next + SUSFS + NoMount**: The ultimate hiding setup.
+            
+            Flash the `.zip` via a custom recovery (TWRP/OrangeFox).
+          files: releases/*.zip
+          draft: false
+          prerelease: false
