@@ -101,165 +101,56 @@ jobs:
           cd ..
 
       # =====================================================================
-      # BUILD 2: KERNELSU NEXT ONLY
+      # BUILD 2: ULTIMATE ALL-IN-ONE (KSUN + SUSFS + NOMOUNT)
       # =====================================================================
-      - name: Integrate KernelSU Next
+      - name: Clean Workspace for Ultimate Build
         run: |
+          # Reset any build artifacts to ensure a clean patch application
+          git reset --hard HEAD
+          git clean -fd
+
+      - name: Integrate KernelSU Next, SUSFS, and NoMount
+        run: |
+          # 1. Clone KSU Next
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+          
+          # 2. Apply Manual Hooks
           echo "Applying core KSU Next manual hooks..."
           patch -p1 --forward --batch < patches/KernelSU-Next-Manual-Hook-4.19.patch
-
-      - name: Build KSUN Kernel
-        run: |
-          export PATH="$CLANG_PATH:$PATH"
-          KSUN_VER=$(git -C KernelSU-Next rev-parse --short HEAD)
           
-          echo "Generating KSUN config..."
-          make ARCH=arm64 O=out vendor/mt6768_defconfig
-          cat arch/arm64/configs/vendor/selene.config >> out/.config
-          echo "CONFIG_KSU=y" >> out/.config
-          echo "CONFIG_KSU_MANUAL_HOOK=y" >> out/.config
-          echo "# CONFIG_KSU_KPROBES_HOOK is not set" >> out/.config
-          yes "" | make ARCH=arm64 O=out olddefconfig
-          
-          export LOCALVERSION="-Zyte-KSUN-${KSUN_VER}-${BUILD_DATE}"
-          echo "Compiling KSUN Kernel with version: $LOCALVERSION"
-          
-          make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
-          
-          rm -f Zyte-Kernel/Image.gz* Zyte-Kernel/dtb
-          cp out/arch/arm64/boot/Image.gz-dtb Zyte-Kernel/ || cp out/arch/arm64/boot/Image.gz Zyte-Kernel/
-          cp out/arch/arm64/boot/dts/mediatek/mt6768.dtb Zyte-Kernel/dtb
-          
-          cd Zyte-Kernel
-          zip -r9 "../releases/Zyte-Kernel-KernelSU-Next-${KSUN_VER}-${BUILD_DATE}.zip" *
-          cd ..
-
-      # =====================================================================
-      # BUILD 3: KERNELSU NEXT + SUSFS
-      # =====================================================================
-      - name: Integrate SUSFS
-        run: |
+          # 3. Apply KSU-Next SUSFS Integration
           echo "Patching KernelSU-Next with SUSFS support..."
           cd KernelSU-Next
           patch -p1 --forward --batch < ../patches/KernelSU-Next-SUSFS-Patches.patch
           cd ..
           
+          # 4. Apply Core SUSFS Kernel Patch
           echo "Applying Core SUSFS 2.3.0..."
           patch -p1 --forward --batch < patches/SUSFS-DeInlined-v2.3.0.patch
-
-      - name: Build KSUN + SUSFS Kernel
-        run: |
-          export PATH="$CLANG_PATH:$PATH"
-          KSUN_VER=$(git -C KernelSU-Next rev-parse --short HEAD)
           
-          echo "Generating KSUN + SUSFS config..."
-          make ARCH=arm64 O=out vendor/mt6768_defconfig
-          cat arch/arm64/configs/vendor/selene.config >> out/.config
-          
-          echo "CONFIG_KSU=y" >> out/.config
-          echo "CONFIG_KSU_MANUAL_HOOK=y" >> out/.config
-          echo "# CONFIG_KSU_KPROBES_HOOK is not set" >> out/.config
-          
-          echo "CONFIG_KSU_SUSFS=y" >> out/.config
-          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> out/.config
-          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> out/.config
-          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> out/.config
-          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> out/.config
-          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> out/.config
-          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> out/.config
-          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> out/.config
-          echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> out/.config
-          echo "# CONFIG_KSU_SUSFS_ENABLE_LOG is not set" >> out/.config
-          
-          yes "" | make ARCH=arm64 O=out olddefconfig
-          
-          export LOCALVERSION="-Zyte-SUSFS-${KSUN_VER}-${BUILD_DATE}"
-          echo "Compiling KSUN + SUSFS Kernel..."
-          
-          make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
-          
-          rm -f Zyte-Kernel/Image.gz* Zyte-Kernel/dtb
-          cp out/arch/arm64/boot/Image.gz-dtb Zyte-Kernel/ || cp out/arch/arm64/boot/Image.gz Zyte-Kernel/
-          cp out/arch/arm64/boot/dts/mediatek/mt6768.dtb Zyte-Kernel/dtb
-          
-          cd Zyte-Kernel
-          zip -r9 "../releases/Zyte-Kernel-KernelSU-Next-SUSFS-${KSUN_VER}-${BUILD_DATE}.zip" *
-          cd ..
-
-      # =====================================================================
-      # BUILD 4: KERNELSU NEXT + NOMOUNT (NO SUSFS)
-      # =====================================================================
-      - name: Revert SUSFS for NoMount Build
-        run: |
-          echo "Reverting SUSFS patches from kernel and KSU-Next..."
-          git checkout -- .
-          git -C KernelSU-Next checkout -- .
-          
-          echo "Re-applying KSU Manual Hooks..."
-          patch -p1 --forward --batch < patches/KernelSU-Next-Manual-Hook-4.19.patch
-          
+          # 5. Integrate NoMount
           echo "Integrating NoMount..."
           curl https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
 
-      - name: Build KSUN + NoMount Kernel
+      - name: Build Ultimate Kernel (KSUN + SUSFS + NoMount)
         run: |
           export PATH="$CLANG_PATH:$PATH"
           KSUN_VER=$(git -C KernelSU-Next rev-parse --short HEAD)
           NOMOUNT_VER=$(git -C NoMount rev-parse --short HEAD)
           
-          echo "Generating KSUN + NoMount config..."
+          echo "Generating Ultimate config..."
           make ARCH=arm64 O=out vendor/mt6768_defconfig
           cat arch/arm64/configs/vendor/selene.config >> out/.config
           
+          # KernelSU Next & Manual Hooks
           echo "CONFIG_KSU=y" >> out/.config
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> out/.config
           echo "# CONFIG_KSU_KPROBES_HOOK is not set" >> out/.config
+          
+          # NoMount
           echo "CONFIG_NOMOUNT=y" >> out/.config
           
-          yes "" | make ARCH=arm64 O=out olddefconfig
-          
-          export LOCALVERSION="-Zyte-NoMount-${NOMOUNT_VER}-${BUILD_DATE}"
-          echo "Compiling KSUN + NoMount Kernel..."
-          
-          make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
-          
-          rm -f Zyte-Kernel/Image.gz* Zyte-Kernel/dtb
-          cp out/arch/arm64/boot/Image.gz-dtb Zyte-Kernel/ || cp out/arch/arm64/boot/Image.gz Zyte-Kernel/
-          cp out/arch/arm64/boot/dts/mediatek/mt6768.dtb Zyte-Kernel/dtb
-          
-          cd Zyte-Kernel
-          zip -r9 "../releases/Zyte-Kernel-KernelSU-Next-NoMount-${NOMOUNT_VER}-${BUILD_DATE}.zip" *
-          cd ..
-
-      # =====================================================================
-      # BUILD 5: KERNELSU NEXT + SUSFS + NOMOUNT (ULTIMATE)
-      # =====================================================================
-      - name: Apply SUSFS on top of NoMount
-        run: |
-          echo "Patching KernelSU-Next with SUSFS support..."
-          cd KernelSU-Next
-          patch -p1 --forward --batch < ../patches/KernelSU-Next-SUSFS-Patches.patch
-          cd ..
-          
-          echo "Applying Core SUSFS 2.3.0..."
-          patch -p1 --forward --batch < patches/SUSFS-DeInlined-v2.3.0.patch
-
-      - name: Build KSUN + SUSFS + NoMount Kernel
-        run: |
-          export PATH="$CLANG_PATH:$PATH"
-          KSUN_VER=$(git -C KernelSU-Next rev-parse --short HEAD)
-          NOMOUNT_VER=$(git -C NoMount rev-parse --short HEAD)
-          
-          echo "Generating KSUN + SUSFS + NoMount config..."
-          make ARCH=arm64 O=out vendor/mt6768_defconfig
-          cat arch/arm64/configs/vendor/selene.config >> out/.config
-          
-          echo "CONFIG_KSU=y" >> out/.config
-          echo "CONFIG_KSU_MANUAL_HOOK=y" >> out/.config
-          echo "# CONFIG_KSU_KPROBES_HOOK is not set" >> out/.config
-          echo "CONFIG_NOMOUNT=y" >> out/.config
-          
+          # SUSFS
           echo "CONFIG_KSU_SUSFS=y" >> out/.config
           echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> out/.config
           echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> out/.config
@@ -273,8 +164,8 @@ jobs:
           
           yes "" | make ARCH=arm64 O=out olddefconfig
           
-          export LOCALVERSION="-Zyte-SUSFS-NoMount-${KSUN_VER}-${BUILD_DATE}"
-          echo "Compiling ULTIMATE Kernel..."
+          export LOCALVERSION="-Zyte-Ultimate-${KSUN_VER}-${BUILD_DATE}"
+          echo "Compiling Ultimate Kernel..."
           
           make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
           
@@ -283,7 +174,7 @@ jobs:
           cp out/arch/arm64/boot/dts/mediatek/mt6768.dtb Zyte-Kernel/dtb
           
           cd Zyte-Kernel
-          zip -r9 "../releases/Zyte-Kernel-KernelSU-Next-SUSFS-NoMount-${KSUN_VER}-${BUILD_DATE}.zip" *
+          zip -r9 "../releases/Zyte-Kernel-Ultimate-${BUILD_DATE}.zip" *
           cd ..
 
       # =====================================================================
@@ -309,10 +200,7 @@ jobs:
             
             ### Included Variants:
             * **Base**: Pure kernel, no root.
-            * **KernelSU Next**: Includes KernelSU-Next with manual hooks.
-            * **KernelSU Next + SUSFS**: Includes KernelSU-Next and SUSFS 2.3.0.
-            * **KernelSU Next + NoMount**: Includes KernelSU-Next and NoMount VFS hiding.
-            * **KernelSU Next + SUSFS + NoMount**: The ultimate hiding setup.
+            * **Ultimate**: KernelSU Next + SUSFS 2.3.0 + NoMount (The ultimate hiding setup).
             
             Flash the `.zip` via a custom recovery (TWRP/OrangeFox).
           files: releases/*.zip
