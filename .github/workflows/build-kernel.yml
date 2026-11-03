@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 180 # Increased timeout just in case
+    timeout-minutes: 180
     permissions:
       contents: write
 
@@ -53,13 +53,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/toolchain
-          key: clang-r450784e-v3 # Bumped version to force a fresh download
+          key: clang-r450784e-v3
 
       - name: Download Clang Toolchain
         if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
           echo "Clang not found in cache, downloading..."
-          # Create the specific folder FIRST
           mkdir -p ${{ github.workspace }}/toolchain/clang-r450784e
           cd ${{ github.workspace }}/toolchain/clang-r450784e
           
@@ -94,7 +93,6 @@ jobs:
           cat arch/arm64/configs/vendor/selene.config >> out/.config
           make ARCH=arm64 O=out olddefconfig
           
-          # Construct the localversion string
           export LOCALVERSION="-Zyte-kernel-base-${BUILD_DATE}"
           echo "Compiling Base Kernel with version: $LOCALVERSION"
           
@@ -110,74 +108,223 @@ jobs:
           cd ..
 
       # =====================================================================
-      # BUILD 2: KERNELSU ONLY
+      # BUILD 2: KERNELSU NEXT ONLY
       # =====================================================================
-      - name: Integrate KernelSU
+      - name: Integrate KernelSU Next & Patch
         run: |
-          curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+          
+          echo "Generating KSU Next manual patch on the fly..."
+          cat << 'EOF' > ksun.patch
+          diff --git a/fs/exec.c b/fs/exec.c
+          --- a/fs/exec.c
+          +++ b/fs/exec.c
+          @@ -1011,6 +1011,12 @@ int do_execve_file(struct file *file, void *__argv, void *__envp)
+           	return __do_execve_file(AT_FDCWD, NULL, argv, envp, 0, file);
+           }
+           
+          +#ifdef CONFIG_KSU
+          +__attribute__((hot))
+          +extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
+          +				void *argv, void *envp, int *flags);
+          +#endif
+          +
+           int do_execve(struct filename *filename,
+           	const char __user *const __user *__argv,
+           	const char __user *const __user *__envp)
+          @@ -1019,6 +1025,9 @@ int do_execve(struct filename *filename,
+           {
+           	struct user_arg_ptr argv = { .ptr.native = __argv };
+           	struct user_arg_ptr envp = { .ptr.native = __envp };
+          +#ifdef CONFIG_KSU
+          +	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+          +#endif
+           	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
+           }
+           
+          @@ -1937,6 +1946,10 @@ static int compat_do_execve(struct filename *filename,
+           		.is_compat = true,
+           		.ptr.compat = __envp,
+           	};
+          +#ifdef CONFIG_KSU // 32-bit ksud and 32-on-64 support
+          +	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+          +#endif
+           	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
+           }
+           
+          diff --git a/fs/open.c b/fs/open.c
+          --- a/fs/open.c
+          +++ b/fs/open.c
+          @@ -344,6 +344,12 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
+           	return ksys_fallocate(fd, mode, offset, len);
+           }
+           
+          +#ifdef CONFIG_KSU
+          +__attribute__((hot))
+          +extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
+          +				int *mode, int *flags);
+          +#endif
+          +
+           /*
+            * access() needs to use the real uid/gid, not the effective uid/gid.
+            * We do this by temporarily clearing all FS-related capabilities and
+          @@ -353,6 +359,10 @@ long do_faccessat(int dfd, const char __user *filename, int mode)
+           	int res;
+           	unsigned int lookup_flags = LOOKUP_FOLLOW;
+            
+          +#ifdef CONFIG_KSU
+          +	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+          +#endif
+          +
+           	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
+           		return -EINVAL;
+            
+          diff --git a/fs/read_write.c b/fs/read_write.c
+          --- a/fs/read_write.c
+          +++ b/fs/read_write.c
+          @@ -570,6 +570,12 @@ static inline void file_pos_write(struct file *file, loff_t pos)
+           		file->f_pos = pos;
+           }
+            
+          +#ifdef CONFIG_KSU
+          +extern bool ksu_vfs_read_hook __read_mostly;
+          +extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd,
+          +				char __user **buf_ptr, size_t *count_ptr);
+          +#endif
+          +
+           ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)
+           {
+           	struct fd f = fdget_pos(fd);
+          @@ -577,6 +583,10 @@ ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)
+           	ssize_t ret = -EBADF;
+            
+          +#ifdef CONFIG_KSU
+          +	if (unlikely(ksu_vfs_read_hook))
+          +		ksu_handle_sys_read(fd, &buf, &count);
+          +#endif
+          +
+           	if (f.file) {
+           		loff_t pos = file_pos_read(f.file);
+           		ret = vfs_read(f.file, buf, count, &pos);
+            
+          diff --git a/fs/stat.c b/fs/stat.c
+          --- a/fs/stat.c
+          +++ b/fs/stat.c
+          @@ -355,6 +355,12 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
+           	return cp_new_stat(&stat, statbuf);
+           }
+            
+          +#ifdef CONFIG_KSU
+          +__attribute__((hot))
+          +extern int ksu_handle_stat(int *dfd, const char __user **filename_user,
+          +				int *flags);
+          +#endif
+          +
+           #if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)
+           SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+           		struct stat __user *, statbuf, int, flag)
+          @@ -360,6 +366,10 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+           	struct kstat stat;
+           	int error;
+            
+          +#ifdef CONFIG_KSU
+          +	ksu_handle_stat(&dfd, &filename, &flag);
+          +#endif
+          +
+           	error = vfs_fstatat(dfd, filename, &stat, flag);
+           	if (error)
+           		return error;
+            
+          diff --git a/kernel/reboot.c b/kernel/reboot.c
+          --- a/kernel/reboot.c
+          +++ b/kernel/reboot.c
+          @@ -297,6 +297,11 @@ static void kernel_shutdown_prepare(enum system_states state)
+            * reboot doesn't sync: do that yourself before calling this.
+            */
+          +
+          +#ifdef CONFIG_KSU
+          +extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
+          +#endif
+          +
+           SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
+           		void __user *, arg)
+           {
+          @@ -305,6 +310,10 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
+           	char buffer[256];
+           	int ret = 0;
+            
+          +#ifdef CONFIG_KSU
+          +	ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+          +#endif
+          +
+           	/* We only trust the superuser with rebooting the system. */
+           	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
+           		return -EPERM;
+          EOF
+          
+          echo "Applying patch..."
+          patch -p1 --forward < ksun.patch
+          rm ksun.patch
 
-      - name: Build KSU Kernel
+      - name: Build KSUN Kernel
         run: |
           export PATH="$CLANG_PATH:$PATH"
-          KSU_VER=$(git -C KernelSU describe --tags --always)
+          KSUN_VER=$(git -C KernelSU-Next describe --tags --always)
           
-          echo "Generating KSU config..."
+          echo "Generating KSUN config..."
           make ARCH=arm64 O=out vendor/mt6768_defconfig
           cat arch/arm64/configs/vendor/selene.config >> out/.config
           echo "CONFIG_KSU=y" >> out/.config
-          echo "CONFIG_KSU_HACK_ARM64_BRANCH_LINK=y" >> out/.config
           make ARCH=arm64 O=out olddefconfig
           
-          # Construct the localversion string
-          export LOCALVERSION="-Zyte-Kernel-KernelSU-${KSU_VER}-${BUILD_DATE}"
-          echo "Compiling KSU Kernel with version: $LOCALVERSION"
+          export LOCALVERSION="-Zyte-Kernel-KernelSU-Next-${KSUN_VER}-${BUILD_DATE}"
+          echo "Compiling KSUN Kernel with version: $LOCALVERSION"
           
           make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
           
-          echo "Packaging KSU..."
+          echo "Packaging KSUN..."
           rm -f Zyte-Kernel/Image.gz* Zyte-Kernel/dtb
           cp out/arch/arm64/boot/Image.gz-dtb Zyte-Kernel/ || cp out/arch/arm64/boot/Image.gz Zyte-Kernel/
           cp out/arch/arm64/boot/dts/mediatek/mt6768.dtb Zyte-Kernel/dtb
           
           cd Zyte-Kernel
-          zip -r9 "../releases/Zyte-Kernel-KernelSU-${KSU_VER}-${BUILD_DATE}.zip" *
+          zip -r9 "../releases/Zyte-Kernel-KernelSU-Next-${KSUN_VER}-${BUILD_DATE}.zip" *
           cd ..
 
       # =====================================================================
-      # BUILD 3: KERNELSU + NOMOUNT
+      # BUILD 3: KERNELSU NEXT + NOMOUNT
       # =====================================================================
       - name: Integrate NoMount
         run: |
           curl https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
 
-      - name: Build KSU + NoMount Kernel
+      - name: Build KSUN + NoMount Kernel
         run: |
           export PATH="$CLANG_PATH:$PATH"
-          KSU_VER=$(git -C KernelSU describe --tags --always)
+          KSUN_VER=$(git -C KernelSU-Next describe --tags --always)
           NOMOUNT_VER=$(git -C NoMount describe --tags --always)
           
-          echo "Generating KSU + NoMount config..."
+          echo "Generating KSUN + NoMount config..."
           make ARCH=arm64 O=out vendor/mt6768_defconfig
           cat arch/arm64/configs/vendor/selene.config >> out/.config
           echo "CONFIG_KSU=y" >> out/.config
-          echo "CONFIG_KSU_HACK_ARM64_BRANCH_LINK=y" >> out/.config
           echo "CONFIG_NOMOUNT=y" >> out/.config
           make ARCH=arm64 O=out olddefconfig
           
-          # Construct the localversion string
-          export LOCALVERSION="-Zyte-Kernel-KernelSU-${KSU_VER}-NoMount-${BUILD_DATE}"
-          echo "Compiling KSU + NoMount Kernel with version: $LOCALVERSION"
+          export LOCALVERSION="-Zyte-Kernel-KernelSU-Next-${KSUN_VER}-NoMount-${BUILD_DATE}"
+          echo "Compiling KSUN + NoMount Kernel with version: $LOCALVERSION"
           
           make ARCH=arm64 O=out -j$(nproc) CC="ccache clang" CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LOCALVERSION="$LOCALVERSION"
           
-          echo "Packaging KSU + NoMount..."
+          echo "Packaging KSUN + NoMount..."
           rm -f Zyte-Kernel/Image.gz* Zyte-Kernel/dtb
           cp out/arch/arm64/boot/Image.gz-dtb Zyte-Kernel/ || cp out/arch/arm64/boot/Image.gz Zyte-Kernel/
           cp out/arch/arm64/boot/dts/mediatek/mt6768.dtb Zyte-Kernel/dtb
           
           cd Zyte-Kernel
-          zip -r9 "../releases/Zyte-Kernel-KernelSU-${KSU_VER}-NoMount-${NOMOUNT_VER}-${BUILD_DATE}.zip" *
+          zip -r9 "../releases/Zyte-Kernel-KernelSU-Next-${KSUN_VER}-NoMount-${NOMOUNT_VER}-${BUILD_DATE}.zip" *
           cd ..
+
       # =====================================================================
       # UPLOAD & RELEASE
       # =====================================================================
@@ -201,8 +348,8 @@ jobs:
             
             ### Included Variants:
             * **Base**: Pure kernel, no root.
-            * **KernelSU**: Includes backslashxx's KernelSU integration.
-            * **KernelSU + NoMount**: Includes KernelSU and NoMount VFS hiding.
+            * **KernelSU Next**: Includes KernelSU-Next with manual patching.
+            * **KernelSU Next + NoMount**: Includes KernelSU Next and NoMount VFS hiding.
             
             Flash the `.zip` via a custom recovery (TWRP/OrangeFox).
           files: releases/*.zip
