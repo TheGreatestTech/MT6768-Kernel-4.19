@@ -84,7 +84,7 @@ jobs:
           echo "Generating base config..."
           make ARCH=arm64 O=out vendor/mt6768_defconfig
           cat arch/arm64/configs/vendor/selene.config >> out/.config
-          yes "" | make ARCH=arm64 O=out olddefconfig
+          make ARCH=arm64 O=out olddefconfig
           
           export LOCALVERSION="-Zyte-base-${BUILD_DATE}"
           echo "Compiling Base Kernel with version: $LOCALVERSION"
@@ -103,12 +103,6 @@ jobs:
       # =====================================================================
       # BUILD 2: ULTIMATE ALL-IN-ONE (KSUN + SUSFS + NOMOUNT)
       # =====================================================================
-      - name: Clean Workspace for Ultimate Build
-        run: |
-          # Reset any build artifacts to ensure a clean patch application
-          git reset --hard HEAD
-          git clean -fd
-
       - name: Integrate KernelSU Next, SUSFS, and NoMount
         run: |
           # 1. Clone KSU Next
@@ -162,7 +156,7 @@ jobs:
           echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> out/.config
           echo "# CONFIG_KSU_SUSFS_ENABLE_LOG is not set" >> out/.config
           
-          yes "" | make ARCH=arm64 O=out olddefconfig
+          make ARCH=arm64 O=out olddefconfig
           
           export LOCALVERSION="-Zyte-Ultimate-${KSUN_VER}-${BUILD_DATE}"
           echo "Compiling Ultimate Kernel..."
