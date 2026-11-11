@@ -1,0 +1,126 @@
+--- a/fs/exec.c
++++ b/fs/exec.c
+@@ -1911,6 +1911,12 @@
+ 	return __do_execve_file(AT_FDCWD, NULL, argv, envp, 0, file);
+ }
+ 
++#ifdef CONFIG_KSU
++__attribute__((hot))
++extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
++												void *argv, void *envp, int *flags);
++#endif
++
+ int do_execve(struct filename *filename,
+ 	const char __user *const __user *__argv,
+ 	const char __user *const __user *__envp)
+@@ -1917,6 +1923,9 @@
+ {
+ 	struct user_arg_ptr argv = { .ptr.native = __argv };
+ 	struct user_arg_ptr envp = { .ptr.native = __envp };
++	#ifdef CONFIG_KSU
++		ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
++	#endif
+ 	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
+ }
+ 
+@@ -1944,6 +1953,9 @@
+ 		.is_compat = true,
+ 		.ptr.compat = __envp,
+ 	};
++	#ifdef CONFIG_KSU // 32-bit ksud and 32-on-64 support
++		ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
++	#endif
+ 	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
+ }
+ 
+--- a/fs/open.c
++++ b/fs/open.c
+@@ -440,8 +440,17 @@
+ 	return res;
+ }
+ 
++#ifdef CONFIG_KSU
++__attribute__((hot)) 
++extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
++								 				int *mode, int *flags);
++#endif
++
+ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
+ {
++	#ifdef CONFIG_KSU
++	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
++	#endif
+ 	return do_faccessat(dfd, filename, mode);
+ }
+ 
+--- a/fs/read_write.c
++++ b/fs/read_write.c
+@@ -586,8 +586,18 @@
+ 	return ret;
+ }
+ 
++#ifdef CONFIG_KSU
++extern bool ksu_vfs_read_hook __read_mostly;
++extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd,
++													  				char __user **buf_ptr, size_t *count_ptr);
++#endif
++
+ SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
+ {
++	#ifdef CONFIG_KSU
++		if (unlikely(ksu_vfs_read_hook)) 
++			ksu_handle_sys_read(fd, &buf, &count);
++	#endif
+ 	return ksys_read(fd, buf, count);
+ }
+ 
+--- a/fs/stat.c
++++ b/fs/stat.c
+@@ -353,6 +353,12 @@
+ 	return cp_new_stat(&stat, statbuf);
+ }
+ 
++#ifdef CONFIG_KSU
++__attribute__((hot)) 
++extern int ksu_handle_stat(int *dfd, const char __user **filename_user,
++											int *flags);
++#endif
++
+ #if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)
+ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+ 		struct stat __user *, statbuf, int, flag)
+@@ -360,6 +366,9 @@
+ 	struct kstat stat;
+ 	int error;
+ 
++	#ifdef CONFIG_KSU
++		ksu_handle_stat(&dfd, &filename, &flag);
++	#endif
+ 	error = vfs_fstatat(dfd, filename, &stat, flag);
+ 	if (error)
+ 		return error;
+
+--- a/kernel/reboot.c
++++ b/kernel/reboot.c
+@@ -305,6 +305,11 @@
+  *
+  * reboot doesn't sync: do that yourself before calling this.
+  */
++
++#ifdef CONFIG_KSU
++extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
++#endif
++
+ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
+ 		void __user *, arg)
+ {
+@@ -312,6 +317,9 @@
+ 	char buffer[256];
+ 	int ret = 0;
+ 
++	#ifdef CONFIG_KSU 
++		ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
++	#endif
+ 	/* We only trust the superuser with rebooting the system. */
+ 	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
+ 		return -EPERM;
