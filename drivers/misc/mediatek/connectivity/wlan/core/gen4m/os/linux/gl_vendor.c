@@ -172,8 +172,8 @@ const struct nla_policy nla_get_version_policy[
 	[LOGGER_ATTRIBUTE_DRIVER_VER] = { .type = NLA_MIN_LEN, .len = 0 },
 	[LOGGER_ATTRIBUTE_FW_VER] = { .type = NLA_MIN_LEN, .len = 0 },
 #else
-	[LOGGER_ATTRIBUTE_DRIVER_VER] = { .type = NLA_UNSPEC },
-	[LOGGER_ATTRIBUTE_FW_VER] = { .type = NLA_UNSPEC },
+	[LOGGER_ATTRIBUTE_DRIVER_VER] = { .type = NLA_MIN_LEN, .len = 0 },
+	[LOGGER_ATTRIBUTE_FW_VER] = { .type = NLA_MIN_LEN, .len = 0 },
 #endif
 };
 
@@ -218,8 +218,8 @@ const struct nla_policy nla_get_acs_policy[
 	[WIFI_VENDOR_ATTR_ACS_CH_LIST] = { .type = NLA_MIN_LEN, .len = 0 },
 	[WIFI_VENDOR_ATTR_ACS_FREQ_LIST] = { .type = NLA_MIN_LEN, .len = 0 },
 #else
-	[WIFI_VENDOR_ATTR_ACS_CH_LIST] = { .type = NLA_UNSPEC },
-	[WIFI_VENDOR_ATTR_ACS_FREQ_LIST] = { .type = NLA_UNSPEC },
+	[WIFI_VENDOR_ATTR_ACS_CH_LIST] = { .type = NLA_MIN_LEN, .len = 0 },
+	[WIFI_VENDOR_ATTR_ACS_FREQ_LIST] = { .type = NLA_MIN_LEN, .len = 0 },
 #endif
 };
 
@@ -232,7 +232,7 @@ const struct nla_policy nla_get_apf_policy[
 #elif KERNEL_VERSION(5, 4, 0) <= CFG80211_VERSION_CODE
 	[APF_ATTRIBUTE_PROGRAM] = {.type = NLA_MIN_LEN, .len = 0},
 #else
-	[APF_ATTRIBUTE_PROGRAM] = {.type = NLA_UNSPEC},
+	[APF_ATTRIBUTE_PROGRAM] = { .type = NLA_MIN_LEN, .len = 0 },
 #endif
 	[APF_ATTRIBUTE_PROGRAM_LEN] = {.type = NLA_U32},
 };
