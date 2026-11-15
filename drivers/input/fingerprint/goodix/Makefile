@@ -23,6 +23,10 @@ subdir-ccflags-y += -I$(srctree)/drivers/spi/trustzone/spi/Tlspi/inc
 endif
 
 #obj-$(CONFIG_GOODIX_FINGERPRINT)	+= gf_spi_tee.o gf_spi_factory.o
+ifdef CONFIG_TARGET_PRODUCT_FIRE
 obj-y += gf_spi_tee.o gf_spi_factory.o
+else
+obj-y += gf_spi_fire.o gf_spi_factory.o
+endif
 
-
+# TODO: Combine both drivers, its same but gf_spi_fire.c has improved irq/wakelock/mtkfb handling

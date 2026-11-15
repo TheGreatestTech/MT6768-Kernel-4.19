@@ -177,11 +177,13 @@ struct gf_device {
 	struct device *device;
 	struct class *class;
 	struct spi_device *spi;
+	struct platform_device *pldev;
 	int device_count;
 #ifndef CONFIG_SPI_MT65XX
 	struct mt_chip_conf spi_mcc;
 #endif
 
+    struct wakeup_source *fp_wake;
 	spinlock_t spi_lock;
 	struct list_head device_entry;
 
@@ -219,12 +221,14 @@ struct gf_device {
 	u32 irq_num;
 	u8  need_update;
 	u32 irq;
+	u8 fb_black;
+	u8 wait_finger_down;
 
 #ifdef CONFIG_OF
 	struct pinctrl *pinctrl_gpios;
 	struct pinctrl_state *pins_irq;
 	struct pinctrl_state *pins_miso_spi, *pins_miso_pullhigh, *pins_miso_pulllow, *pins_spi_cs_high, *pins_spi_cs_low, *pins_spi_mode;
-	struct pinctrl_state *pins_reset_high, *pins_reset_low;
+	struct pinctrl_state *fpsensor_goodix_power_on, *fpsensor_goodix_power_off, *pins_reset_high, *pins_reset_low;
 #endif
 };
 
@@ -247,6 +251,7 @@ struct gf_device {
 /**********************function defination**********************/
 extern bool goodix_fp_exist;
 extern bool fpc1022_fp_exist;
+extern bool fpc1542_fp_exist;
 #ifndef CONFIG_SPI_MT65XX
 void gf_spi_setup_conf_ree(struct gf_device *gf_dev, u32 speed, enum spi_transfer_mode mode);
 #endif
