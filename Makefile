@@ -717,6 +717,14 @@ ifdef CONFIG_CC_WERROR
 KBUILD_CFLAGS  += -Werror
 endif
 
+ifeq ($(CONFIG_MACH_MT6768),y)
+ifdef CONFIG_CC_IS_CLANG
+KBUILD_CFLAGS	+= $(call cc-option,-mcpu=cortex-a55+crypto+crc+lse+fp16+dotprod)
+else
+KBUILD_CFLAGS	+= $(call cc-option,-mcpu=cortex-a75.cortex-a55+crypto+crc+lse+fp16+dotprod)
+endif
+endif
+
 # Tell gcc to never replace conditional load with a non-conditional one
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
 KBUILD_CFLAGS	+= $(call cc-option,-fno-allow-store-data-races)
