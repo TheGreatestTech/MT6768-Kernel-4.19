@@ -4324,3 +4324,14 @@ defined(CONFIG_MTK_CAM_SECURITY_SUPPORT)
 #ifdef CONFIG_MTK_ENABLE_GENIEZONE
 #include "mediatek/trusty.dtsi"
 #endif
+
+/* fire: keep the eMMC rail on like the stock fire DTB. Without this the
+ * phone hangs early into a PMIC full reset, even on the stock kernel. */
+&mt_pmic_vemc_ldo_reg {
+	regulator-always-on;
+};
+
+/* fire: the stock fire DTB allows vldo28 up to 3.0 V */
+&mt_pmic_vldo28_ldo_reg {
+	regulator-max-microvolt = <3000000>;
+};
