@@ -104,7 +104,11 @@ int mtk_panel_compare(void)
 		mtk_rxtx_ratio = 232;
 	} else {
 		mtk_mm_clk = 270;
+#ifdef CONFIG_MTK_MT6382_VDO_MODE
+		mtk_rxtx_ratio = 230;
+#else
 		mtk_rxtx_ratio = 225;
+#endif
 	}
 
 	if (saved_command_line)
