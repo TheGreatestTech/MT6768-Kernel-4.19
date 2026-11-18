@@ -44,7 +44,9 @@ ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat
 ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_DEBUG_FS
 ccflags-y += -DCONFIG_PROC_FS
 
-ifeq ($(CONFIG_MACH_MT6768),y)
+# Arm devfreq on MT6768 is opt-in (make MT6768_MALI_DEVFREQ=1): with it on by
+# default battery life dropped, so the default stays on MTK GED/common DVFS.
+ifeq ($(CONFIG_MACH_MT6768)$(MT6768_MALI_DEVFREQ),y1)
 # MT6768 uses the Arm devfreq governor, but keeps MTK GPUFreq as the sole
 # clock/voltage transition backend for PTPOD, PBM, thermal and VSRAM handling.
 CONFIG_MALI_DEVFREQ := y
