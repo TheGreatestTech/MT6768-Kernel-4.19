@@ -32,7 +32,84 @@
 
 #include <linux/version.h>
 #include <linux/pm_opp.h>
+#if IS_ENABLED(CONFIG_MACH_MT6768)
+#include <mtk_gpufreq.h>
+#include "platform/mtk_platform_common.h"
+
+static struct devfreq_simple_ondemand_data mtk_ondemand_data = {
+	.upthreshold = 90,
+	.downdifferential = 20,
+};
+#endif
 #include "mali_kbase_devfreq.h"
+
+#if IS_ENABLED(CONFIG_MACH_MT6768)
+static int kbase_mtk_devfreq_add_opps(struct kbase_device *kbdev)
+{
+	unsigned int i;
+	unsigned int num_opps = mt_gpufreq_get_dvfs_table_num();
+	int err = 0;
+
+	if (!num_opps)
+		return -EPROBE_DEFER;
+
+	for (i = 0; i < num_opps; i++) {
+		unsigned long freq = (unsigned long)mt_gpufreq_get_freq_by_idx(i) * 1000;
+		unsigned long volt = (unsigned long)mt_gpufreq_get_volt_by_idx(i) * 10;
+
+		if (!freq || !volt) {
+			err = -EINVAL;
+			goto rollback;
+		}
+
+		err = dev_pm_opp_add(kbdev->dev, freq, volt);
+		if (err)
+			goto rollback;
+	}
+
+	return 0;
+
+rollback:
+	while (i--)
+		dev_pm_opp_remove(kbdev->dev,
+			(unsigned long)mt_gpufreq_get_freq_by_idx(i) * 1000);
+	return err;
+}
+
+static void kbase_mtk_devfreq_remove_opps(struct kbase_device *kbdev)
+{
+	unsigned int i;
+	unsigned int num_opps = mt_gpufreq_get_dvfs_table_num();
+
+	for (i = 0; i < num_opps; i++)
+		dev_pm_opp_remove(kbdev->dev,
+			(unsigned long)mt_gpufreq_get_freq_by_idx(i) * 1000);
+}
+
+static int kbase_mtk_devfreq_target(struct kbase_device *kbdev, unsigned long freq)
+{
+	unsigned int i;
+	unsigned int num_opps = mt_gpufreq_get_dvfs_table_num();
+	unsigned int khz;
+
+	for (i = 0; i < num_opps; i++) {
+		if ((unsigned long)mt_gpufreq_get_freq_by_idx(i) * 1000 == freq)
+			break;
+	}
+
+	if (i == num_opps)
+		return -EINVAL;
+
+	if (mtk_mali_set_opp_idx(i))
+		return -EIO;
+
+	khz = mt_gpufreq_get_freq_by_idx(mtk_mali_get_opp_idx());
+	if (khz)
+		kbdev->current_nominal_freq = (unsigned long)khz * 1000;
+
+	return 0;
+}
+#endif
 
 /**
  * get_voltage() - Get the voltage value corresponding to the nominal frequency
@@ -112,14 +189,16 @@ static int kbase_devfreq_target(struct device *dev, unsigned long *target_freq, 
 	struct kbase_device *kbdev = dev_get_drvdata(dev);
 	struct dev_pm_opp *opp;
 	unsigned long nominal_freq;
+#if !IS_ENABLED(CONFIG_MACH_MT6768)
 	unsigned long freqs[BASE_MAX_NR_CLOCKS_REGULATORS] = { 0 };
 #if IS_ENABLED(CONFIG_REGULATOR)
 	unsigned long original_freqs[BASE_MAX_NR_CLOCKS_REGULATORS] = { 0 };
 #endif
 	unsigned long volts[BASE_MAX_NR_CLOCKS_REGULATORS] = { 0 };
 	unsigned int i;
-	int err;
 	u64 core_mask;
+#endif
+	int err;
 
 	nominal_freq = *target_freq;
 
@@ -144,6 +223,13 @@ static int kbase_devfreq_target(struct device *dev, unsigned long *target_freq, 
 		*target_freq = nominal_freq;
 		return 0;
 	}
+
+#if IS_ENABLED(CONFIG_MACH_MT6768)
+	err = kbase_mtk_devfreq_target(kbdev, nominal_freq);
+	if (!err)
+		*target_freq = kbdev->current_nominal_freq;
+	return err;
+#else
 
 	kbase_devfreq_opp_translate(kbdev, nominal_freq, &core_mask, freqs, volts);
 
@@ -218,6 +304,7 @@ static int kbase_devfreq_target(struct device *dev, unsigned long *target_freq, 
 	KBASE_TLSTREAM_AUX_DEVFREQ_TARGET(kbdev, (u64)nominal_freq);
 
 	return 0;
+#endif
 }
 
 void kbase_devfreq_force_freq(struct kbase_device *kbdev, unsigned long freq)
@@ -247,6 +334,18 @@ static int kbase_devfreq_status(struct device *dev, struct devfreq_dev_status *s
 	stat->total_time = diff.time_busy + diff.time_idle;
 	stat->current_frequency = kbdev->current_nominal_freq;
 	stat->private_data = NULL;
+
+#if IS_ENABLED(CONFIG_MACH_MT6768)
+	/*
+	 * If the GPU was powered off for the whole sample window, report
+	 * zero busy time so simple_ondemand does not ramp to MAX on wake.
+	 * The governor's stale-sample guard will keep the saved OPP.
+	 */
+	if (!mtk_common_pm_is_mfg_active()) {
+		stat->busy_time = 0;
+		stat->total_time = 0;
+	}
+#endif
 
 #if MALI_USE_CSF && defined CONFIG_DEVFREQ_THERMAL
 	kbase_ipa_reset_data(kbdev);
@@ -606,7 +705,7 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 	unsigned int i;
 	bool free_devfreq_freq_table = true;
 
-	if (kbdev->nr_clocks == 0) {
+	if (kbdev->nr_clocks == 0 && !IS_ENABLED(CONFIG_MACH_MT6768)) {
 		dev_err(kbdev->dev, "Clock not available for devfreq\n");
 		return -ENODEV;
 	}
@@ -615,19 +714,33 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 		if (kbdev->clocks[i])
 			kbdev->current_freqs[i] = clk_get_rate(kbdev->clocks[i]);
 	}
+#if IS_ENABLED(CONFIG_MACH_MT6768)
+	kbdev->current_nominal_freq = (unsigned long)mt_gpufreq_get_cur_freq() * 1000;
+#else
 	kbdev->current_nominal_freq = kbdev->current_freqs[0];
+#endif
 
 	dp = &kbdev->devfreq_profile;
 
-	dp->initial_freq = kbdev->current_freqs[0];
+	dp->initial_freq = kbdev->current_nominal_freq;
 	dp->polling_ms = 100;
 	dp->target = kbase_devfreq_target;
 	dp->get_dev_status = kbase_devfreq_status;
 	dp->get_cur_freq = kbase_devfreq_cur_freq;
 	dp->exit = kbase_devfreq_exit;
 
-	if (kbase_devfreq_init_freq_table(kbdev, dp))
+	#if IS_ENABLED(CONFIG_MACH_MT6768)
+	err = kbase_mtk_devfreq_add_opps(kbdev);
+	if (err)
+		return err;
+	#endif
+
+	if (kbase_devfreq_init_freq_table(kbdev, dp)) {
+#if IS_ENABLED(CONFIG_MACH_MT6768)
+		kbase_mtk_devfreq_remove_opps(kbdev);
+#endif
 		return -EFAULT;
+	}
 
 	if (dp->max_state > 0) {
 		/* Record the maximum frequency possible */
@@ -646,7 +759,11 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 	if (err)
 		goto init_core_mask_table_failed;
 
+#if IS_ENABLED(CONFIG_MACH_MT6768)
+	kbdev->devfreq = devfreq_add_device(kbdev->dev, dp, "simple_ondemand", &mtk_ondemand_data);
+#else
 	kbdev->devfreq = devfreq_add_device(kbdev->dev, dp, "simple_ondemand", NULL);
+#endif
 	if (IS_ERR(kbdev->devfreq)) {
 		err = PTR_ERR(kbdev->devfreq);
 		kbdev->devfreq = NULL;
@@ -713,6 +830,10 @@ ipa_init_failed:
 	if (free_devfreq_freq_table)
 		kbase_devfreq_term_freq_table(kbdev);
 
+#if IS_ENABLED(CONFIG_MACH_MT6768)
+	kbase_mtk_devfreq_remove_opps(kbdev);
+#endif
+
 	return err;
 }
 
@@ -738,6 +859,10 @@ void kbase_devfreq_term(struct kbase_device *kbdev)
 		kbdev->devfreq = NULL;
 
 	kbase_devfreq_term_core_mask_table(kbdev);
+
+#if IS_ENABLED(CONFIG_MACH_MT6768)
+	kbase_mtk_devfreq_remove_opps(kbdev);
+#endif
 
 #if IS_ENABLED(CONFIG_DEVFREQ_THERMAL)
 	kbase_ipa_term(kbdev);

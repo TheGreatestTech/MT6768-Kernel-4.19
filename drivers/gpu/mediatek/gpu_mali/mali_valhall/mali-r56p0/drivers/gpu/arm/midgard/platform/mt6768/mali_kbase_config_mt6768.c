@@ -32,6 +32,35 @@ DEFINE_MUTEX(g_mfg_lock);
 static void *g_MFG_base;
 static int g_curFreqID;
 
+/*
+ * MT6768: kbase devfreq picks the target OPP, but MTK GPUFreq remains the
+ * only backend that programs clock/voltage, so PTPOD, PBM, thermal limits
+ * and VSRAM sequencing stay intact. GED DVFS is not used.
+ */
+int mtk_mali_set_opp_idx(unsigned int idx)
+{
+	int ret = 0;
+
+	mutex_lock(&g_mfg_lock);
+	/* While off, ignore devfreq: keep the last active OPP for power-on. */
+	if (mtk_common_pm_is_mfg_active())
+		ret = mt_gpufreq_target(idx, false);
+	mutex_unlock(&g_mfg_lock);
+
+	return ret;
+}
+
+unsigned int mtk_mali_get_opp_idx(void)
+{
+	unsigned int idx;
+
+	mutex_lock(&g_mfg_lock);
+	idx = mtk_common_pm_is_mfg_active() ? mt_gpufreq_get_cur_freq_index() : g_curFreqID;
+	mutex_unlock(&g_mfg_lock);
+
+	return idx;
+}
+
 /**
  * For GPU idle check
  */

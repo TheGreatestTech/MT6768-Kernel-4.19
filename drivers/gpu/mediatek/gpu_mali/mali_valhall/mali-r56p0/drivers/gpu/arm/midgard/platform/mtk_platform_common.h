@@ -26,6 +26,9 @@ void mtk_common_pm_mfg_idle(void);
 int mtk_common_gpufreq_commit(int opp_idx);
 int mtk_common_ged_dvfs_get_last_commit_idx(void);
 
+int mtk_mali_set_opp_idx(unsigned int idx);
+unsigned int mtk_mali_get_opp_idx(void);
+
 int mtk_common_device_init(struct kbase_device *kbdev);
 void mtk_common_device_term(struct kbase_device *kbdev);
 
