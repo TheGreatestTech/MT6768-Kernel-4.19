@@ -568,6 +568,10 @@ void ged_opp_stat_step(void)
 bool ged_dvfs_gpu_freq_commit(unsigned long ui32NewFreqID,
 	unsigned long ui32NewFreq, GED_DVFS_COMMIT_TYPE eCommitType)
 {
+#ifndef CONFIG_MTK_GPU_COMMON_DVFS_SUPPORT
+	return false;
+#endif
+
 	int bCommited = false;
 	unsigned long ui32CurFreqID;
 
@@ -797,6 +801,9 @@ int ged_dvfs_vsync_offset_level_get(void)
 
 GED_ERROR ged_dvfs_um_commit(unsigned long gpu_tar_freq, bool bFallback)
 {
+#ifndef CONFIG_MTK_GPU_COMMON_DVFS_SUPPORT
+	return GED_OK;
+#endif
 #ifdef ENABLE_COMMON_DVFS
 	int i32MaxLevel = 0;
 	unsigned int ui32NewFreqID;
@@ -979,6 +986,9 @@ static void ged_dvfs_trigger_fb_dvfs(void)
 static int ged_dvfs_fb_gpu_dvfs(int t_gpu, int t_gpu_target,
 	int target_fps_margin, unsigned int force_fallback)
 {
+#ifndef CONFIG_MTK_GPU_COMMON_DVFS_SUPPORT
+	return -1;
+#else
 	int i, i32MaxLevel, gpu_freq_tar, ui32NewFreqID = 0;
 	int ret_freq = -1;
 	static int gpu_freq_pre = -1;
@@ -990,6 +1000,7 @@ static int ged_dvfs_fb_gpu_dvfs(int t_gpu, int t_gpu_target,
 	int busy_cycle_cur;
 	unsigned long ui32IRQFlags;
 	static int force_fallback_pre;
+#endif
 
 #ifdef GED_ENABLE_DYNAMIC_DVFS_MARGIN
 	static int margin_low_bound;
@@ -1541,6 +1552,9 @@ static void ged_dvfs_freq_thermal_limitCB(unsigned int ui32LimitFreqID)
 
 void ged_dvfs_boost_gpu_freq(void)
 {
+#ifndef CONFIG_MTK_GPU_COMMON_DVFS_SUPPORT
+	return;
+#endif
 	if (gpu_debug_enable)
 		GED_LOGE("%s", __func__);
 
@@ -1918,6 +1932,9 @@ void ged_dvfs_run(unsigned long t, long phase, unsigned long ul3DFenceDoneTime)
 {
 	unsigned long ui32IRQFlags;
 	unsigned int gpu_freq_pre;
+#ifndef CONFIG_MTK_GPU_COMMON_DVFS_SUPPORT
+	return;
+#endif
 
 	mutex_lock(&gsDVFSLock);
 
@@ -2320,7 +2337,9 @@ GED_ERROR ged_dvfs_system_init(void)
 #endif
 
 	/* GPU HAL fp mount */
+#ifndef CONFIG_MTK_GPU_COMMON_DVFS_SUPPORT
 	mt_gpufreq_power_limit_notify_registerCB(ged_dvfs_freq_thermal_limitCB);
+#endif
 #ifdef ENABLE_COMMON_DVFS
 	mtk_boost_gpu_freq_fp = ged_dvfs_boost_gpu_freq;
 #endif
