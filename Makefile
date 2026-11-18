@@ -892,7 +892,7 @@ CFLAGS_AUTOFDO_CLANG += -gmlt
 endif
 
 ifdef CLANG_AUTOFDO_PROFILE
-CFLAGS_AUTOFDO_CLANG += -fprofile-sample-use=$(CLANG_AUTOFDO_PROFILE) -ffunction-sections
+CFLAGS_AUTOFDO_CLANG += -fprofile-sample-use=$(CLANG_AUTOFDO_PROFILE) -ffunction-sections -fsplit-machine-functions
 endif
 KBUILD_CFLAGS_KERNEL += $(CFLAGS_AUTOFDO_CLANG)
 export CFLAGS_AUTOFDO_CLANG
@@ -907,6 +907,7 @@ KBUILD_LDFLAGS	+= --thinlto-cache-dir=.thinlto-cache
 ifdef CONFIG_AUTOFDO_CLANG
 KBUILD_LDFLAGS += --mllvm=-enable-fs-discriminator=true
 KBUILD_LDFLAGS += --mllvm=-improved-fs-discriminator=true
+KBUILD_LDFLAGS += -plugin-opt=-split-machine-functions
 
 ifdef CLANG_AUTOFDO_PROFILE
 KBUILD_LDFLAGS += --lto-sample-profile=$(CLANG_AUTOFDO_PROFILE)

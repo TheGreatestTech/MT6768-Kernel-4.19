@@ -574,6 +574,11 @@ defined(CONFIG_AUTOFDO_CLANG)
 		*(.text.unlikely .text.unlikely.*)			\
 		__unlikely_text_end = .;
 
+#define TEXT_SPLIT							\
+		__split_text_start = .;					\
+		*(.text.split .text.split.[0-9a-zA-Z_]*)		\
+		__split_text_end = .;
+
 #define TEXT_HOT							\
 		__hot_text_start = .;					\
 		*(.text.hot .text.hot.*)				\
