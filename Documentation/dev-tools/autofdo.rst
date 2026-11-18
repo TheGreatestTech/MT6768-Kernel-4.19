@@ -53,14 +53,18 @@ process consists of the following steps:
 
 #. Profiling: The above kernel is then run with a representative
    workload to gather execution frequency data. This data is
-   collected using hardware sampling, via perf. AutoFDO is most
-   effective on platforms supporting advanced PMU features like
-   LBR on Intel machines.
+   collected using hardware sampling, via perf. On x86 this commonly
+   uses Last Branch Record (LBR) support. On arm64, profiles can be
+   collected using the Statistical Profiling Extension (SPE), Embedded
+   Trace Macrocell (ETM), or Branch Record Buffer Extension (BRBE) where
+   supported.
 
 #. AutoFDO profile generation: Perf output file is converted to
    the AutoFDO profile via offline tools.
 
-The support requires a Clang compiler LLVM 17 or later.
+The support requires a Clang compiler LLVM 17 or later. AutoFDO supports
+arm64 Linux kernel builds as well as x86 builds. AutoFDO v0.20 and later
+can consume SPE and ETM branch profiles.
 
 Preparation
 ===========
@@ -68,6 +72,15 @@ Preparation
 Configure the kernel with::
 
    CONFIG_AUTOFDO_CLANG=y
+
+On arm64, enable the relevant profiling support in the kernel. For SPE
+profiling this includes::
+
+   CONFIG_ARM_SPE_PMU=y
+   CONFIG_PID_IN_CONTEXTIDR=y
+
+Depending on the platform, ETM or BRBE support may be used instead. SPE
+profiling may also require booting with ``kpti=off``.
 
 Customization
 =============
