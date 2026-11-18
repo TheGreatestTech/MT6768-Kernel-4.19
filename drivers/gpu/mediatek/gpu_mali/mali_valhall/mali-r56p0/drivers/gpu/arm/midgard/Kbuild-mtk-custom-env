@@ -44,8 +44,13 @@ ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat
 ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_DEBUG_FS
 ccflags-y += -DCONFIG_PROC_FS
 
+ifeq ($(CONFIG_MTK_GPU_COMMON_DVFS_SUPPORT),y)
 ccflags-y += -DCONFIG_MALI_MIDGARD_DVFS
-ccflags-$(CONFIG_MTK_GPU_COMMON_DVFS_SUPPORT) += -DCONFIG_MTK_GPU_COMMON_DVFS
+ccflags-y += -DCONFIG_MTK_GPU_COMMON_DVFS
+else
+CONFIG_MALI_DEVFREQ := y
+ccflags-y += -DCONFIG_MALI_DEVFREQ -UCONFIG_MALI_MIDGARD_DVFS
+endif
 
 # Enable by specific Family-ID
 ifneq (, $(findstring $(CONFIG_MTK_PLATFORM), "mt6885" "mt6873" "mt6853"))
