@@ -18,7 +18,7 @@ static int get_vb_volt(int vcore_opp)
 	int ret = 0;
 	int ptpod64 = ((get_devinfo_with_index(64) >> 9) & 0x3);
 
-	pr_info("%s: ptpod64: 0x%x\n", __func__, ptpod64);
+	pr_debug("%s: ptpod64: 0x%x\n", __func__, ptpod64);
 	switch (vcore_opp) {
 	case VCORE_OPP_0:
 	case VCORE_OPP_1:

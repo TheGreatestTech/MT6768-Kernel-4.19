@@ -133,21 +133,39 @@ static void dvfsrc_release_force(void)
 
 static void dvfsrc_set_sw_bw(int type, int data)
 {
+	static int last_bw[5] = { -1, -1, -1, -1, -1 };
+	int bw_val = data / 100;
+
 	switch (type) {
 	case MTK_PM_QOS_MEMORY_BANDWIDTH_TEST:
-		dvfsrc_write(DVFSRC_SW_BW_0, data / 100);
+		if (last_bw[0] != bw_val) {
+			dvfsrc_write(DVFSRC_SW_BW_0, bw_val);
+			last_bw[0] = bw_val;
+		}
 		break;
 	case MTK_PM_QOS_CPU_MEMORY_BANDWIDTH:
-		dvfsrc_write(DVFSRC_SW_BW_1, data / 100);
+		if (last_bw[1] != bw_val) {
+			dvfsrc_write(DVFSRC_SW_BW_1, bw_val);
+			last_bw[1] = bw_val;
+		}
 		break;
 	case MTK_PM_QOS_GPU_MEMORY_BANDWIDTH:
-		dvfsrc_write(DVFSRC_SW_BW_2, data / 100);
+		if (last_bw[2] != bw_val) {
+			dvfsrc_write(DVFSRC_SW_BW_2, bw_val);
+			last_bw[2] = bw_val;
+		}
 		break;
 	case MTK_PM_QOS_MM_MEMORY_BANDWIDTH:
-		dvfsrc_write(DVFSRC_SW_BW_3, data / 100);
+		if (last_bw[3] != bw_val) {
+			dvfsrc_write(DVFSRC_SW_BW_3, bw_val);
+			last_bw[3] = bw_val;
+		}
 		break;
 	case MTK_PM_QOS_OTHER_MEMORY_BANDWIDTH:
-		dvfsrc_write(DVFSRC_SW_BW_4, data / 100);
+		if (last_bw[4] != bw_val) {
+			dvfsrc_write(DVFSRC_SW_BW_4, bw_val);
+			last_bw[4] = bw_val;
+		}
 		break;
 	default:
 		break;
