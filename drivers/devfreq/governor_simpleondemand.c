@@ -64,9 +64,14 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 		return 0;
 	}
 
-	/* Assume MAX if it is going to be divided by zero */
+	/*
+	 * Stale-sample guard: total_time == 0 means the device was powered
+	 * off (or just woke) for the entire sample window. Keep the previous
+	 * frequency so we avoid a spurious MAX spike on wake; the next real
+	 * sample will ramp up if load warrants it.
+	 */
 	if (stat->total_time == 0) {
-		*freq = max;
+		*freq = df->previous_freq ? df->previous_freq : max;
 		return 0;
 	}
 

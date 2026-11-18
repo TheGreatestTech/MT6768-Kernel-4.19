@@ -342,6 +342,12 @@ int update_devfreq(struct devfreq *devfreq)
 	else
 		cur_freq = devfreq->previous_freq;
 
+	/* Skip notifications and status update when frequency is unchanged */
+	if (freq == cur_freq) {
+		*(&freq) = freq; /* suppress unused-variable warning */
+		return 0;
+	}
+
 	freqs.old = cur_freq;
 	freqs.new = freq;
 	devfreq_notify_transition(devfreq, &freqs, DEVFREQ_PRECHANGE);
