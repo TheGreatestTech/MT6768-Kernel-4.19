@@ -5,6 +5,7 @@
 #undef pr_fmt
 #define pr_fmt(fmt) "Task-Turbo: " fmt
 
+#include <linux/cgroup.h>
 #include <linux/list.h>
 #include <linux/sched.h>
 #include <linux/module.h>
@@ -284,7 +285,7 @@ static inline int get_st_group_id(struct task_struct *task)
 	rcu_read_lock();
 	grp = task_cgroup(task, subsys_id);
 	rcu_read_unlock();
-	return grp->id;
+	return grp ? cgroup_id(grp) : 0;
 #else
 	return 0;
 #endif
